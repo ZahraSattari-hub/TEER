@@ -1,0 +1,12 @@
+name: TEER
+title: TEER
+username: zahrasattari
+account: zahrasattari
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 17536062
+bundleId: 12158349
+url: https://zahrasattari.shinyapps.io/TEER/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE
