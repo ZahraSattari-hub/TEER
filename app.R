@@ -15,6 +15,9 @@ library(DT)
 library(tidyverse)
 library(readxl)
 library(pracma)
+library(lme4)
+library(lmerTest)
+
 
 # ==========================================================
 # LOAD DATA
@@ -70,6 +73,128 @@ metrics_df <- trajectory_df %>%
     .groups = "drop"
   )
 
+
+# ==========================================================
+# TREATMENT SIGNIFICANCE
+# ==========================================================
+
+
+significance_results <- list()
+
+days_to_test <- c(2,3,4,6)
+
+for(d in days_to_test){
+  
+  day_data <- df %>%
+    filter(day == d)
+  
+  if(d %in% c(2,3)){
+    
+    model_full <- glmer(
+      teer ~ Treatment + (1|Animal),
+      family = Gamma(link = "log"),
+      data = day_data
+    )
+    
+    model_null <- glmer(
+      teer ~ 1 + (1|Animal),
+      family = Gamma(link = "log"),
+      data = day_data
+    )
+    
+    p_val <- anova(
+      model_full,
+      model_null
+    )$`Pr(>Chisq)`[2]
+    
+    model_name <- "Gamma GLMM"
+    
+  } else {
+    
+    model_full <- lmer(
+      teer ~ Treatment + (1|Animal),
+      data = day_data
+    )
+    
+    model_null <- lmer(
+      teer ~ 1 + (1|Animal),
+      data = day_data
+    )
+    
+    p_val <- anova(
+      model_full,
+      model_null
+    )$`Pr(>Chisq)`[2]
+    
+    model_name <- "Linear Mixed Model"
+  }
+  
+  significance_results[[length(significance_results)+1]] <-
+    data.frame(
+      Day = d,
+      Model = model_name,
+      P_value = p_val,
+      Significant = ifelse(
+        p_val < 0.05,
+        "Yes",
+        "No"
+      )
+    )
+}
+
+significance_df <- bind_rows(significance_results)
+
+all_days_df <- data.frame(
+  Day = c(1,2,3,4,5,6,7)
+)
+
+significance_df <- all_days_df %>%
+  left_join(
+    significance_df,
+    by = "Day"
+  ) %>%
+  mutate(
+    
+    Model =
+      ifelse(
+        is.na(Model),
+        "Not tested",
+        Model
+      ),
+    
+    Significant =
+      ifelse(
+        is.na(Significant),
+        "-",
+        Significant
+      )
+    
+  )
+
+ # Create significance labels for plot
+
+sig_labels <- significance_df %>%
+  
+  mutate(
+    
+    label = case_when(
+      
+      is.na(P_value) ~ "",
+      
+      P_value < 0.001 ~ "***",
+      
+      P_value < 0.01 ~ "**",
+      
+      P_value < 0.05 ~ "*",
+      
+      TRUE ~ "ns"
+      
+    )
+    
+  )
+
+
+
 # ==========================================================
 # UI
 # ==========================================================
@@ -112,6 +237,12 @@ ui <- dashboardPage(
         "Response Metrics",
         tabName = "metrics",
         icon = icon("table")
+      ),
+      
+      menuItem(
+        "Treatment Significance",
+        tabName = "significance",
+        icon = icon("flask")
       ),
       
       menuItem(
@@ -313,6 +444,35 @@ ui <- dashboardPage(
         )
         
       ),
+      # ====================================================
+      # SIG
+      # ====================================================
+      
+      tabItem(
+        
+        tabName = "significance",
+        
+        fluidRow(
+          
+          box(
+            
+            width = 12,
+            
+            title = "Treatment Effect by Day",
+            
+            p(
+              "Treatment effects were evaluated using the same mixed-model strategy described in the publication."
+            ),
+            
+            DTOutput(
+              "significance_table"
+            )
+            
+          )
+          
+        )
+        
+      ),
       
       # ====================================================
       # DOWNLOAD
@@ -458,7 +618,12 @@ server <- function(input, output, session){
   # TREATMENT DYNAMICS
   # ========================================================
   
+  
   output$treatment_plot <- renderPlotly({
+    
+    # ----------------------------------
+    # Create treatment summary first
+    # ----------------------------------
     
     treatment_summary <- df %>%
       
@@ -487,6 +652,39 @@ server <- function(input, output, session){
         
       )
     
+    # ----------------------------------
+    # Create significance annotation positions
+    # ----------------------------------
+    
+    annotation_y <- treatment_summary %>%
+      
+      group_by(day) %>%
+      
+      summarise(
+        
+        y =
+          max(
+            mean_teer + se,
+            na.rm = TRUE
+          ) + 75,
+        
+        .groups = "drop"
+        
+      )
+    
+    sig_plot_df <- sig_labels %>%
+      
+      left_join(
+        annotation_y,
+        by = c(
+          "Day" = "day"
+        )
+      )
+    
+    # ----------------------------------
+    # Plot
+    # ----------------------------------
+    
     p <- ggplot(
       
       treatment_summary,
@@ -505,23 +703,54 @@ server <- function(input, output, session){
       geom_point(size = 3) +
       
       geom_errorbar(
+        
         aes(
+          
           ymin = mean_teer - se,
           ymax = mean_teer + se
+          
         ),
+        
         width = 0.2
+        
+      ) +
+      
+      geom_text(
+        
+        data = sig_plot_df,
+        
+        aes(
+          x = Day,
+          y = y,
+          label = label
+        ),
+        
+        inherit.aes = FALSE,
+        
+        size = 7,
+        
+        color = "black"
+        
       ) +
       
       labs(
+        
         title = "Treatment Dynamics",
+        
         x = "Time (day)",
+        
         y = "TEER (Ω)",
+        
         color = "Treatment"
+        
       ) +
       
       scale_x_continuous(
+        
         limits = c(0,7),
+        
         breaks = seq(0,7,1)
+        
       ) +
       
       theme_classic(base_size = 18)
@@ -529,6 +758,7 @@ server <- function(input, output, session){
     ggplotly(p)
     
   })
+  
   
   # ========================================================
   # METRICS TABLE
@@ -560,6 +790,38 @@ server <- function(input, output, session){
       AUC = round(AUC, 2)
       
     )
+  
+  # ========================================================
+  # SIG
+  # ========================================================
+  
+  
+  output$significance_table <- renderDT({
+    
+    datatable(
+      
+      significance_df,
+      
+      rownames = FALSE,
+      
+      options = list(
+        
+        searching = FALSE,
+        
+        pageLength = 7,
+        
+        lengthMenu = c(1,2,3,4,5,6,7)
+        
+      )
+      
+    ) %>%
+      
+      formatRound(
+        columns = "P_value",
+        digits = 4
+      )
+    
+  })
   
 
   
