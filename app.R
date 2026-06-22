@@ -99,7 +99,7 @@ ui <- dashboardPage(
       menuItem(
         "Animal Dynamics",
         tabName = "animal",
-        icon = icon("paw")
+        icon = icon("cow")
       ),
       
       menuItem(
@@ -148,7 +148,7 @@ ui <- dashboardPage(
           valueBox(
             value = nlevels(df$Animal),
             subtitle = "Animals",
-            icon = icon("paw"),
+            icon = icon("cow"),
             width = 3
           ),
           
@@ -210,7 +210,7 @@ ui <- dashboardPage(
             <ul>
             <li>Animal Dynamics reproduces the publication-style mean ± SE visualization by cow.</li>
             <li>Treatment Dynamics reproduces the publication-style mean ± SE visualization by treatment.</li>
-            <li>Response metrics are calculated from Animal + Treatment + Day aggregated mean TEER trajectories.</li>
+            <li>Response metrics are calculated from the same mean TEER values used to construct the longitudinal trajectories displayed in the dashboard.</li>
             </ul>
             ")
             
@@ -540,12 +540,28 @@ server <- function(input, output, session){
       metrics_df,
       rownames = FALSE,
       options = list(
-        pageLength = 10,
+        pageLength = 4,
+        lengthMenu = c(1,2,3,4,6,7,8,9,10),
         scrollX = TRUE
       )
     )
     
   })
+  
+  metrics_df <- metrics_df %>%
+    mutate(
+      
+      Peak_TEER = round(Peak_TEER, 2),
+      
+      Minimum_TEER = round(Minimum_TEER, 2),
+      
+      Time_to_Peak = round(Time_to_Peak, 2),
+      
+      AUC = round(AUC, 2)
+      
+    )
+  
+
   
   # ========================================================
   # DOWNLOAD
@@ -576,6 +592,7 @@ server <- function(input, output, session){
   )
   
 }
+
 
 # ==========================================================
 # RUN APP
